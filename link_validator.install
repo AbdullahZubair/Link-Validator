@@ -1,0 +1,92 @@
+<?php
+
+/**
+ * @file
+ * Install, update, and uninstall functions for the Link Validator module.
+ * This module stores and manages results from software download link checks.
+ */
+
+/**
+ * Implements hook_schema().
+ * Defines the database schema for storing link validation results.
+ */
+function link_validator_schema() {
+  $schema['link_validator_results'] = array(
+    'description' => 'Stores results of software download link validations.',
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Primary Key: Unique result ID.',
+      ),
+      'nid' => array(
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'description' => 'Node ID of the software.',
+      ),
+      'url' => array(
+        'type' => 'varchar',
+        'length' => 2048,
+        'not null' => TRUE,
+        'description' => 'The URL that was validated.',
+      ),
+      'status' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'HTTP status code returned from the validation check.',
+      ),
+      'status_message' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'HTTP status message from the validation check.',
+      ),
+      'redirected' => array(
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Indicates if the URL was redirected (1) or not (0).',
+      ),
+      'final_url' => array(
+        'type' => 'varchar',
+        'length' => 2048,
+        'not null' => TRUE,
+        'default' => '',
+        'description' => 'Final URL after all redirects.',
+      ),
+      'checked' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Unix timestamp of the last validation check for the URL.',
+      ),
+    ),
+    'primary key' => array('id'),
+    'indexes' => array(
+      'nid' => array('nid'),
+      'url' => array(array('url', 255)),
+      'status' => array('status'),
+      'checked' => array('checked'),
+    ),
+  );
+
+  return $schema;
+}
+
+/**
+ * Implements hook_uninstall().
+ * Cleans up the module settings and database schema on uninstall.
+ */
+function link_validator_uninstall() {
+  // Remove variables set by the Link Validator module.
+  variable_del('link_validator_timeout');
+  variable_del('link_validator_batch_size');
+
+  // Uninstall the database schema for the Link Validator module.
+  drupal_uninstall_schema('link_validator');
+}

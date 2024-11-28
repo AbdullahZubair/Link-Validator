@@ -1,0 +1,7 @@
+name = Link Validator
+description = Checks and validates software download links from various app stores and generates detailed reports for administrators.
+core = 7.x
+package = Custom
+version = 7.x-1.0
+dependencies[] = link
+configure = admin/config/system/link-validator

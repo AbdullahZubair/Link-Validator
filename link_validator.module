@@ -1,0 +1,267 @@
+<?php
+
+/**
+ * @file
+ * Main module file for Link Validator.
+ *
+ * Provides settings, permissions, and functions to check the validity of
+ * software download links from app stores.
+ */
+
+/**
+ * Implements hook_menu().
+ * Defines menu items for Link Validator settings and reports pages.
+ */
+function link_validator_menu() {
+  $items = array();
+
+  // Settings page for Link Validator.
+  $items['admin/config/system/link-validator'] = array(
+    'title' => 'Link Validator Settings',
+    'description' => 'Configure Link Validator settings',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('link_validator_settings_form'),
+    'access arguments' => array('administer link validator'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  // Report page displaying software link statuses.
+  $items['admin/reports/links'] = array(
+    'title' => 'Link Validation Status',
+    'description' => 'View the latest results from our link validator module, showing the health of Software Download links across the site.',
+    'page callback' => 'link_validator_report_page',
+    'access arguments' => array('access link reports'),
+    'type' => MENU_NORMAL_ITEM,
+    'file' => 'link_validator.pages.inc',
+  );
+
+  $items['link-validator/mark-fixed/%/%'] = array(
+    'page callback' => 'link_validator_mark_fixed_callback',
+    'page arguments' => array(2, 3),
+    'access arguments' => array('access link reports'),
+    'type' => MENU_CALLBACK,
+  );
+
+  return $items;
+}
+
+/**
+ * Implements hook_permission().
+ * Defines custom permissions for the Link Validator module.
+ */
+function link_validator_permission() {
+  return array(
+    'access link reports' => array(
+      'title' => t('Access link reports'),
+      'description' => t('View software download link status reports.'),
+    ),
+    'run link validator' => array(
+      'title' => t('Run link validator'),
+      'description' => t('Manually trigger link validation process.'),
+    ),
+    'administer link validator' => array(
+      'title' => t('Administer link validator'),
+      'description' => t('Configure link validator settings.'),
+      'restrict access' => TRUE,
+    ),
+  );
+}
+
+/**
+ * Form callback for Link Validator settings.
+ *
+ * @param array $form
+ * @param array &$form_state
+ * @return array
+ *   Renderable form array for module configuration.
+ */
+function link_validator_settings_form($form, &$form_state) {
+  $form['link_validator_timeout'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Request timeout'),
+    '#description' => t('Timeout in seconds for checking each link.'),
+    '#default_value' => variable_get('link_validator_timeout', 10),
+    '#element_validate' => array('element_validate_integer_positive'),
+    '#required' => TRUE,
+  );
+
+  $form['link_validator_batch_size'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Batch size'),
+    '#description' => t('Number of links to check in each batch.'),
+    '#default_value' => variable_get('link_validator_batch_size', 50),
+    '#element_validate' => array('element_validate_integer_positive'),
+    '#required' => TRUE,
+  );
+
+  return system_settings_form($form);
+}
+
+/**
+ * Retrieves nodes that require link validation.
+ *
+ * @return array
+ *   An array of node IDs to validate.
+ */
+function link_validator_get_nodes_to_check() {
+  $query = db_select('node', 'n');
+  $query->join('field_data_field_software_dl', 'dl', 'n.nid = dl.entity_id AND dl.entity_type = :type', array(':type' => 'node'));
+
+  $query->fields('n', array('nid'))
+    ->condition('n.type', 'software')
+    ->condition('n.status', 1)
+    ->condition(
+      db_or()
+        ->condition('dl.field_software_dl_url', '%play.google.com%', 'LIKE')
+        ->condition('dl.field_software_dl_url', '%apps.apple.com%', 'LIKE')
+        ->condition('dl.field_software_dl_url', '%microsoft.com/store%', 'LIKE')
+    )
+    ->distinct();
+
+  return $query->execute()->fetchCol();
+}
+
+/**
+ * Checks if the provided URL belongs to a supported app store.
+ *
+ * @param string $url
+ * @return bool
+ *   TRUE if URL is from a supported store, FALSE otherwise.
+ */
+function link_validator_is_store_url($url) {
+  if (empty($url)) {
+    return FALSE;
+  }
+
+  $patterns = array(
+    'play.google.com',
+    'apps.apple.com',
+    'microsoft.com/store',
+  );
+
+  foreach ($patterns as $pattern) {
+    if (stripos($url, $pattern) !== FALSE) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Checks the status of a given URL using drupal_http_request.
+ *
+ * @param string $url
+ * @return array
+ *   An array containing URL status and details.
+ */
+function link_validator_check_url($url) {
+  if (empty($url)) {
+    return array(
+      'url' => '',
+      'status' => 0,
+      'message' => 'Empty URL',
+      'redirected' => FALSE,
+      'final_url' => '',
+    );
+  }
+
+  $options = array(
+    'timeout' => variable_get('link_validator_timeout', 10),
+    'headers' => array(
+      'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    ),
+    'max_redirects' => 5,
+  );
+
+  try {
+    $result = drupal_http_request($url, $options);
+    $final_url = $url;
+
+    // Handle Microsoft Store URLs with redirection.
+    if (stripos($url, 'microsoft.com/store') !== FALSE && 
+        isset($result->redirect_code) && 
+        $result->redirect_code == 301 && 
+        !empty($result->redirect_url)) {
+      $redirect_path = strtok($result->redirect_url, '?');
+      $final_url = 'https://apps.microsoft.com' . $redirect_path;
+    }
+    elseif (!empty($result->redirect_url)) {
+      $final_url = $result->redirect_url;
+    }
+
+    return array(
+      'url' => $url,
+      'status' => isset($result->code) ? (int) $result->code : 0,
+      'message' => isset($result->status_message) ? check_plain($result->status_message) : 'Unknown',
+      'redirected' => !empty($result->redirect_url),
+      'final_url' => $final_url,
+    );
+  }
+  catch (Exception $e) {
+    watchdog('link_validator', 'Error checking URL @url: @message', 
+      array('@url' => $url, '@message' => $e->getMessage()), WATCHDOG_ERROR);
+
+    return array(
+      'url' => $url,
+      'status' => 0,
+      'message' => check_plain($e->getMessage()),
+      'redirected' => FALSE,
+      'final_url' => $url,
+    );
+  }
+}
+
+/**
+ * Saves link validation results to the database.
+ *
+ * @param int $nid
+ *   Node ID.
+ * @param array $result
+ *   Array containing link validation results.
+ */
+function link_validator_save_result($nid, $result) {
+  if (empty($nid) || empty($result['url'])) {
+    return;
+  }
+
+  try {
+    db_merge('link_validator_results')
+      ->key(array(
+        'nid' => (int) $nid,
+        'url' => $result['url'],
+      ))
+      ->fields(array(
+        'status' => (int) $result['status'],
+        'status_message' => check_plain($result['message']),
+        'redirected' => !empty($result['redirected']) ? 1 : 0,
+        'final_url' => check_plain($result['final_url']),
+        'checked' => REQUEST_TIME,
+      ))
+      ->execute();
+  }
+  catch (Exception $e) {
+    watchdog('link_validator', 'Error saving results: @message', 
+      array('@message' => $e->getMessage()), WATCHDOG_ERROR);
+  }
+}
+
+/**
+ * AJAX callback to mark a URL as fixed.
+ */
+function link_validator_mark_fixed_callback($nid, $url) {
+  $url = urldecode($url);
+  $result = db_delete('link_validator_results')
+    ->condition('nid', $nid)
+    ->condition('url', $url)
+    ->execute();
+    
+  $response = array(
+    'success' => (bool) $result,
+    'message' => t('URL has been marked as fixed.'),
+  );
+  
+  drupal_add_http_header('Content-Type', 'application/json');
+  print drupal_json_encode($response);
+  drupal_exit();
+}

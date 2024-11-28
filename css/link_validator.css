@@ -1,0 +1,52 @@
+/**
+ * @file
+ * Styles for the Link Validator module.
+ */
+
+.mark-fixed-btn {
+  display: inline-block;
+  padding: 8px 16px;
+  background: #0074bd;
+  color: white;
+  border-radius: 4px;
+  text-decoration: none;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.mark-fixed-btn:hover,
+.mark-fixed-btn:focus {
+  background: #005c94;
+  color: white;
+  text-decoration: none;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.mark-fixed-btn:focus {
+  outline: none;
+  border-color: #003866;
+}
+
+.mark-fixed-btn:active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.link-validator-table {
+  width: 100%;
+  margin-top: 1em;
+}
+
+.messages {
+  padding: 15px;
+  margin: 1em 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.messages.status {
+  color: #3c763d;
+  background-color: #dff0d8;
+  border-color: #d6e9c6;
+}
